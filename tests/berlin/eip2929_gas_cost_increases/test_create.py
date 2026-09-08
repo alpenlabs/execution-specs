@@ -176,6 +176,7 @@ def test_create_insufficient_balance(
     )
 
 
+@pytest.mark.pre_alloc_mutable
 @pytest.mark.valid_from("Berlin")
 @pytest.mark.parametrize(
     "create_opcode",
