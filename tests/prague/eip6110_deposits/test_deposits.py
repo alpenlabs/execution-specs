@@ -1079,6 +1079,9 @@ def test_deposit_negative(
         ),
     ],
 )
+@pytest.mark.execute(
+    pytest.mark.skip(reason="requires custom genesis gas limit")
+)
 @pytest.mark.slow()
 def test_deposit_high_count(
     blockchain_test: BlockchainTestFiller,
