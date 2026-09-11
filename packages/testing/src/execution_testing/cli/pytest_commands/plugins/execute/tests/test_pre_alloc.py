@@ -1,13 +1,18 @@
 """Test the pre-allocation models used during test execution."""
 
+from itertools import count
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
 from execution_testing.base_types import Address, Hash
+from execution_testing.forks import Prague
+from execution_testing.test_types import EOA
 
 from ...shared.address_stubs import StubAddress, StubEOA
-from ..pre_alloc import AddressStubs
+from ...shared.pre_alloc import AllocFlags
+from ..pre_alloc import AddressStubs, Alloc
 
 ADDR_1 = Address("0x0000000000000000000000000000000000000001")
 DEPOSIT_ADDR = Address("0x00000000219ab540356cbb839cbe05303d7705fa")
@@ -15,6 +20,63 @@ TEST_PKEY = Hash(
     0x45A915E4D060149EB4365960E6A7A45F334393093061116B197E3240065FF2D8
 )
 TEST_ADDR = Address("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b")
+
+
+@pytest.mark.parametrize("required_balance", [None, 0, 12345])
+def test_deferred_funding_for_unused_eoa(required_balance: int | None) -> None:
+    """Unused EOAs cost zero value; used EOAs retain their required balance."""
+    alloc = Alloc(
+        sender=EOA(key=TEST_PKEY),
+        eth_rpc=Mock(),
+        eoa_iterator=(EOA(key=key) for key in count(1)),
+        chain_id=1,
+        fork=Prague,
+        flags=AllocFlags.NONE,
+    )
+    eoa = alloc.fund_eoa()
+    balances = {} if required_balance is None else {eoa: required_balance}
+    pending_tx = alloc._pending_txs[0]
+    original_nonce = pending_tx.nonce
+    assert pending_tx.value is None
+    alloc.minimum_balance_for_pending_transactions(
+        balances,
+        gas_price=10,
+        max_fee_per_gas=10,
+        max_priority_fee_per_gas=0,
+        max_fee_per_blob_gas=1,
+    )
+    assert pending_tx.value == (required_balance or 0)
+    assert pending_tx.nonce == original_nonce
+    assert balances == (
+        {} if required_balance is None else {eoa: required_balance}
+    )
+
+
+def test_unresolved_non_funding_value_still_fails() -> None:
+    """Do not silently coerce malformed setup operations to zero transfers."""
+    alloc = Alloc(
+        sender=EOA(key=TEST_PKEY),
+        eth_rpc=Mock(),
+        eoa_iterator=(EOA(key=key) for key in count(1)),
+        chain_id=1,
+        fork=Prague,
+        flags=AllocFlags.NONE,
+    )
+    alloc._add_pending_tx(
+        action="deploy_contract",
+        target=None,
+        to=ADDR_1,
+        value=None,
+        gas_limit=21000,
+    )
+    with pytest.raises(ValueError, match="Sender balance must be set"):
+        alloc.minimum_balance_for_pending_transactions(
+            {},
+            gas_price=10,
+            max_fee_per_gas=10,
+            max_priority_fee_per_gas=0,
+            max_fee_per_blob_gas=1,
+        )
 
 
 @pytest.mark.parametrize(
