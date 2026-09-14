@@ -123,6 +123,7 @@ def test_fund_address_does_not_execute_recipient(
         chain_id=1,
         fork=Prague,
         flags=AllocFlags.NONE,
+        funding_gas_limit=21_000,
     )
 
     alloc.fund_address(
@@ -137,6 +138,11 @@ def test_fund_address_does_not_execute_recipient(
     assert pending_tx.to is None
     assert pending_tx.data == Op.SELFDESTRUCT(ADDR_1)
     assert pending_tx.value == expected_transfer
+    intrinsic_gas = Prague.transaction_intrinsic_cost_calculator()(
+        calldata=pending_tx.data,
+        contract_creation=True,
+    )
+    assert pending_tx.gas_limit >= intrinsic_gas * 2
     account = alloc[ADDR_1]
     assert account is not None
     assert account.balance == current_balance + expected_transfer

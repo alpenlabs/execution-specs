@@ -1181,8 +1181,19 @@ class Alloc(SharedAlloc):
     ) -> PendingTransaction:
         """Queue a balance transfer without executing the recipient."""
         initcode = Op.SELFDESTRUCT(address)
+        fork = self._fork.fork_at(
+            block_number=self._block_number,
+            timestamp=self._timestamp,
+        )
+        _, helper_gas_limit = _compute_deploy_gas_limit(
+            fork,
+            deploy_code_size=0,
+            initcode=Bytes(initcode),
+        )
+        gas_limit = max(self._funding_gas_limit, helper_gas_limit)
         logger.debug(
-            f"Funding address {address} via a transient SELFDESTRUCT helper"
+            f"Funding address {address} via a transient SELFDESTRUCT helper "
+            f"with gas limit {gas_limit}"
         )
         return self._add_pending_tx(
             action="fund_address",
@@ -1190,7 +1201,7 @@ class Alloc(SharedAlloc):
             to=None,
             data=initcode,
             value=amount,
-            gas_limit=self._funding_gas_limit,
+            gas_limit=gas_limit,
         )
 
     def minimum_balance_for_pending_transactions(
