@@ -28,6 +28,7 @@ from execution_testing import (
     Account,
     Address,
     Alloc,
+    ChainConfig,
     Environment,
     StateTestFiller,
     Transaction,
@@ -144,6 +145,7 @@ class Context:
     init_code: Bytecode
     fork: Fork
     env: Environment
+    chain_id: int
 
 
 @dataclass(frozen=True)
@@ -322,7 +324,7 @@ CASES: dict[Opcodes, Case] = {
         _hash_word(SHA3_INPUT.to_bytes(WORD, "big")),
         prefix=Op.MSTORE(offset=0x1C0, value=SHA3_INPUT),
     ),
-    Op.CHAINID: Case(Op.CHAINID, 1),
+    Op.CHAINID: Case(Op.CHAINID, lambda context: context.chain_id),
     # --- Jumps must clear the REVERT they skip over.
     Op.JUMP: Case(_jump_over_revert(conditional=False), JUMP_MARKER),
     Op.JUMPI: Case(_jump_over_revert(conditional=True), JUMP_MARKER),
@@ -508,6 +510,7 @@ def test_opcodes_transaction_init(
     state_test: StateTestFiller,
     pre: Alloc,
     fork: Fork,
+    chain_config: ChainConfig,
     opcode: Opcodes,
 ) -> None:
     """Run one opcode inside a creation transaction's init code."""
@@ -559,6 +562,7 @@ def test_opcodes_transaction_init(
         init_code=init_code,
         fork=fork,
         env=env,
+        chain_id=chain_config.chain_id,
     )
     deployed_code = b""
     if case.expected is not None:
