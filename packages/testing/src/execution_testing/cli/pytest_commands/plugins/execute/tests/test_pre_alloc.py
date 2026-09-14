@@ -9,6 +9,7 @@ import pytest
 from execution_testing.base_types import Address, Hash
 from execution_testing.forks import Prague
 from execution_testing.test_types import EOA
+from execution_testing.vm import Op
 
 from ...shared.address_stubs import StubAddress, StubEOA
 from ...shared.pre_alloc import AllocFlags
@@ -34,7 +35,9 @@ def test_deferred_funding_for_unused_eoa(required_balance: int | None) -> None:
         flags=AllocFlags.NONE,
     )
     eoa = alloc.fund_eoa()
-    balances = {} if required_balance is None else {eoa: required_balance}
+    balances: dict[Address, int] = (
+        {} if required_balance is None else {eoa: required_balance}
+    )
     pending_tx = alloc._pending_txs[0]
     original_nonce = pending_tx.nonce
     assert pending_tx.value is None
@@ -77,6 +80,88 @@ def test_unresolved_non_funding_value_still_fails() -> None:
             max_priority_fee_per_gas=0,
             max_fee_per_blob_gas=1,
         )
+
+
+def test_deploy_contract_accepts_raw_bytecode() -> None:
+    """Treat raw bytes as runtime code instead of requiring opcode metadata."""
+    alloc = Alloc(
+        sender=EOA(key=TEST_PKEY),
+        eth_rpc=Mock(),
+        eoa_iterator=(EOA(key=key) for key in count(1)),
+        chain_id=1,
+        fork=Prague,
+        flags=AllocFlags.NONE,
+    )
+
+    contract = alloc.deploy_contract(bytes(Op.STOP))
+
+    assert len(alloc._pending_txs) == 1
+    assert alloc._pending_txs[0].to is None
+    assert alloc._deployed_contracts == [(contract, Op.STOP)]
+
+
+@pytest.mark.parametrize(
+    "minimum_balance,current_balance,requested_amount,expected_transfer",
+    [
+        pytest.param(False, 7, 11, 11, id="additive_balance"),
+        pytest.param(True, 7, 11, 4, id="minimum_balance"),
+    ],
+)
+def test_fund_address_does_not_execute_recipient(
+    minimum_balance: bool,
+    current_balance: int,
+    requested_amount: int,
+    expected_transfer: int,
+) -> None:
+    """Fund arbitrary addresses through a transient SELFDESTRUCT helper."""
+    eth_rpc = Mock()
+    eth_rpc.get_balances.return_value = [current_balance]
+    alloc = Alloc(
+        sender=EOA(key=TEST_PKEY),
+        eth_rpc=eth_rpc,
+        eoa_iterator=(EOA(key=key) for key in count(1)),
+        chain_id=1,
+        fork=Prague,
+        flags=AllocFlags.NONE,
+    )
+
+    alloc.fund_address(
+        ADDR_1,
+        requested_amount,
+        minimum_balance=minimum_balance,
+    )
+    alloc.resolve_deferred_checks()
+
+    eth_rpc.get_balances.assert_called_once_with([ADDR_1])
+    pending_tx = alloc._pending_txs[0]
+    assert pending_tx.to is None
+    assert pending_tx.data == Op.SELFDESTRUCT(ADDR_1)
+    assert pending_tx.value == expected_transfer
+    account = alloc[ADDR_1]
+    assert account is not None
+    assert account.balance == current_balance + expected_transfer
+
+
+def test_fund_address_skips_satisfied_minimum() -> None:
+    """Do not queue a transfer when the existing balance is sufficient."""
+    eth_rpc = Mock()
+    eth_rpc.get_balances.return_value = [11]
+    alloc = Alloc(
+        sender=EOA(key=TEST_PKEY),
+        eth_rpc=eth_rpc,
+        eoa_iterator=(EOA(key=key) for key in count(1)),
+        chain_id=1,
+        fork=Prague,
+        flags=AllocFlags.NONE,
+    )
+
+    alloc.fund_address(ADDR_1, 11, minimum_balance=True)
+    alloc.resolve_deferred_checks()
+
+    assert alloc._pending_txs == []
+    account = alloc[ADDR_1]
+    assert account is not None
+    assert account.balance == 11
 
 
 @pytest.mark.parametrize(
