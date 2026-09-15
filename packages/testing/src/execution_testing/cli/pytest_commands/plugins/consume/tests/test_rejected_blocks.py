@@ -5,6 +5,7 @@ import pytest
 from execution_testing.base_types import Hash
 from execution_testing.exceptions import (
     BlockException,
+    TransactionException,
     UndefinedException,
 )
 from execution_testing.rpc.rpc_types import (
@@ -40,6 +41,32 @@ CACHED_REJECTION_ERROR = UndefinedException(
 def test_alpen_uses_reth_exception_mapper() -> None:
     """Alpen's Reth-derived validation strings use the Reth mapper."""
     assert isinstance(EXCEPTION_MAPPERS["alpen"], RethExceptionMapper)
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            "Failed to recover the block",
+            {TransactionException.INVALID_SIGNATURE_VRS},
+        ),
+        (
+            "Unexpected type flag",
+            {
+                TransactionException.INVALID_SIGNATURE_VRS,
+                TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW,
+            },
+        ),
+    ],
+)
+def test_reth_maps_raw_transaction_decode_failures(
+    message: str,
+    expected: set[TransactionException],
+) -> None:
+    """Map Reth's lossy raw-transaction decode errors to valid candidates."""
+    mapped = RethExceptionMapper().message_to_exception(message)
+    assert not isinstance(mapped, UndefinedException)
+    assert set(mapped) == expected
 
 
 def test_first_rejection_returns_the_error_itself() -> None:
