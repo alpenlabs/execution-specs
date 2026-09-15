@@ -51,6 +51,10 @@ def test_alpen_uses_reth_exception_mapper() -> None:
             {TransactionException.INVALID_SIGNATURE_VRS},
         ),
         (
+            "Failed to recover the signer",
+            {TransactionException.INVALID_SIGNATURE_VRS},
+        ),
+        (
             "Unexpected type flag",
             {
                 TransactionException.INVALID_SIGNATURE_VRS,

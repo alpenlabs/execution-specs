@@ -74,7 +74,7 @@ class RethExceptionMapper(ExceptionMapper):
             r"gas floor \(\d+\) exceeds the gas limit \(\d+\)"
         ),
         TransactionException.INVALID_SIGNATURE_VRS: (
-            r"Failed to recover the block|Unexpected type flag"
+            r"Failed to recover the (?:block|signer)|Unexpected type flag"
         ),
         TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: (
             r"Unexpected type flag"
