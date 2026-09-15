@@ -1633,6 +1633,14 @@ def base_test_parametrizer(cls: Type[BaseTest]) -> Any:
                         group_salt = _strip_xdist_group_suffix(
                             request.node.nodeid
                         )
+                elif request.node.get_closest_marker("pre_alloc_mutable"):
+                    # A mutable pre-allocation can deliberately remove or
+                    # replace a canonical account. Sharing its genesis would
+                    # leak another test's version of that account back into
+                    # this test during group packing, changing the fixture's
+                    # semantics. Isolate these tests unless they explicitly
+                    # opt into a named pre-allocation group above.
+                    group_salt = _strip_xdist_group_suffix(request.node.nodeid)
 
                 pre_alloc_hash: AllocGroupHash | None = None
                 # Phase 1: Generate pre-allocation groups
