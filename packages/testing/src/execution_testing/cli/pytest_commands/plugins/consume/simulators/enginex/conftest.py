@@ -1,17 +1,16 @@
 """
 Pytest fixtures for the `consume enginex` simulator.
 
-Configure the hive back-end & EL clients for test execution
-with `BlockchainEngineXFixtures`. Use multi-test client
-architecture to reuse clients across tests with the same
-pre-alloc group.
+Configure the Hive back-end and EL clients for test execution with
+`BlockchainEngineXFixtures`. Group lifecycle reuses clients that share a
+pre-allocation group; test lifecycle starts a fresh client for every fixture.
 """
 
 import io
 import json
 import logging
 import time
-from typing import TYPE_CHECKING, Generator, cast
+from typing import TYPE_CHECKING, Generator, Literal, cast
 
 import pytest
 from hive.client import Client, ClientType
@@ -33,6 +32,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+EngineXClientLifecycle = Literal["group", "test"]
+ENGINE_X_CLIENT_LIFECYCLES: tuple[EngineXClientLifecycle, ...] = (
+    "group",
+    "test",
+)
+DEFAULT_ENGINE_X_CLIENT_LIFECYCLE: EngineXClientLifecycle = "group"
+
 pytest_plugins = (
     "execution_testing.cli.pytest_commands.plugins.pytest_hive.pytest_hive",
     "execution_testing.cli.pytest_commands.plugins.consume.simulators.base",
@@ -45,9 +51,35 @@ pytest_plugins = (
 )
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the EngineX client lifecycle control."""
+    group = parser.getgroup("enginex client lifecycle")
+    group.addoption(
+        "--enginex-client-lifecycle",
+        choices=ENGINE_X_CLIENT_LIFECYCLES,
+        default=DEFAULT_ENGINE_X_CLIENT_LIFECYCLE,
+        help=(
+            "Choose whether one execution client is reused for each "
+            "pre-allocation group ('group') or a fresh client is started "
+            "for every fixture ('test')."
+        ),
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
     """Set the supported fixture formats for the enginex simulator."""
     config.supported_fixture_formats = [BlockchainEngineXFixture]  # type: ignore[attr-defined]
+
+
+@pytest.fixture(scope="session")
+def enginex_client_lifecycle(
+    request: pytest.FixtureRequest,
+) -> EngineXClientLifecycle:
+    """Return the validated EngineX client lifecycle selected on the CLI."""
+    value = request.config.getoption("enginex_client_lifecycle")
+    if value not in ENGINE_X_CLIENT_LIFECYCLES:
+        raise ValueError(f"Unsupported EngineX client lifecycle: {value!r}")
+    return cast(EngineXClientLifecycle, value)
 
 
 @pytest.hookimpl(trylast=True)
@@ -170,28 +202,75 @@ def test_suite_description() -> str:
     )
 
 
+def _start_client(
+    *,
+    hive_context: HiveTest,
+    client_type: ClientType,
+    environment: dict,
+    client_genesis: dict,
+    group_identifier: str,
+    total_timing_data: "TimingData",
+) -> Client:
+    """Start one EngineX client from a pre-allocation-group genesis."""
+    serialize_start = time.perf_counter()
+    genesis_bytes = json.dumps(client_genesis).encode("utf-8")
+    buffered_genesis = io.BufferedReader(
+        cast(io.RawIOBase, io.BytesIO(genesis_bytes))
+    )
+    logger.info(
+        f"⏱ phase=genesis_serialize group={group_identifier} "
+        f"ms={(time.perf_counter() - serialize_start) * 1000:.1f}"
+    )
+    logger.info(
+        f"🚀 Starting client ({client_type.name}) for group {group_identifier}"
+    )
+
+    start_requested = time.perf_counter()
+    with total_timing_data.time("Start client"):
+        resolved_client = hive_context.start_client(
+            client_type=client_type,
+            environment=environment,
+            files={"/genesis.json": buffered_genesis},
+        )
+
+    assert resolved_client is not None, (
+        f"Unable to connect to client ({client_type.name}) via "
+        "Hive. Check the client or Hive server logs for more information."
+    )
+    logger.info(
+        f"⏱ phase=client_start group={group_identifier} "
+        f"ms={(time.perf_counter() - start_requested) * 1000:.1f}"
+    )
+    logger.info(
+        f"Client ({client_type.name}) ready for group {group_identifier}"
+    )
+    return resolved_client
+
+
 @pytest.fixture(scope="function", autouse=True)
 def _per_test_reporting(
     client: Client,
     hive_test: HiveTest,
+    enginex_client_lifecycle: EngineXClientLifecycle,
 ) -> None:
     """
-    Register a test for execution against a multi-test client.
+    Register grouped clients for per-test Hive log capture.
 
     Activate log segment capturing in the Hive backend for correct
     client log reporting in the multi-test client case.
 
-    Parameter order matters: `client` listed before `hive_test`
-    ensures pytest sets up `client` first and tears it down last.
-    This guarantees `hive_test` teardown (`test.end()`) runs while
-    the hive node still exists, before `client` teardown calls
-    `mark_test_completed` / `client.stop()`.
+    In grouped mode, parameter order matters: `client` listed before
+    `hive_test` ensures pytest sets up `client` first and tears it down last.
+    This guarantees `hive_test` teardown (`test.end()`) runs while the Hive
+    node still exists, before grouped-client teardown marks the test complete.
+    Isolated clients are already owned by the per-test `hive_test` context.
     """
-    hive_test.register_multi_test_client(client)
+    if enginex_client_lifecycle == "group":
+        hive_test.register_multi_test_client(client)
 
 
 @pytest.fixture(scope="function")
-def client(
+def _grouped_client(
     multi_test_hive_test: HiveTest,
     multi_test_client_manager: "MultiTestClientManager",
     fixture: BlockchainEngineXFixture,
@@ -216,45 +295,13 @@ def client(
     if resolved_client is not None:
         logger.info(f"♻️  Reusing client for group {group_identifier}")
     else:
-        # Start new client; calculate genesis
-        serialize_start = time.perf_counter()
-        genesis_bytes = json.dumps(client_genesis).encode("utf-8")
-        buffered_genesis = io.BufferedReader(
-            cast(io.RawIOBase, io.BytesIO(genesis_bytes))
-        )
-        logger.info(
-            f"⏱ phase=genesis_serialize group={group_identifier} "
-            f"ms={(time.perf_counter() - serialize_start) * 1000:.1f}"
-        )
-
-        logger.info(
-            f"🚀 Starting client ({client_type.name}) "
-            f"for group {group_identifier}"
-        )
-
-        start_requested = time.perf_counter()
-        with total_timing_data.time("Start client"):
-            resolved_client = multi_test_hive_test.start_client(
-                client_type=client_type,
-                environment=environment,
-                files={"/genesis.json": buffered_genesis},
-            )
-
-        assert resolved_client is not None, (
-            f"Unable to connect to client ({client_type.name}) via "
-            "Hive. Check the client or Hive server logs for more "
-            "information."
-        )
-
-        # The hive start-client API only returns once the client answers
-        # its liveness check, so this duration spans container creation,
-        # client boot and the check-live wait.
-        logger.info(
-            f"⏱ phase=client_start group={group_identifier} "
-            f"ms={(time.perf_counter() - start_requested) * 1000:.1f}"
-        )
-        logger.info(
-            f"Client ({client_type.name}) ready for group {group_identifier}"
+        resolved_client = _start_client(
+            hive_context=multi_test_hive_test,
+            client_type=client_type,
+            environment=environment,
+            client_genesis=client_genesis,
+            group_identifier=group_identifier,
+            total_timing_data=total_timing_data,
         )
 
         multi_test_client_manager.register_client(
@@ -268,6 +315,64 @@ def client(
         multi_test_client_manager.mark_test_completed(
             group_identifier, test_id
         )
+
+
+@pytest.fixture(scope="function")
+def _isolated_client(
+    hive_test: HiveTest,
+    fixture: BlockchainEngineXFixture,
+    client_type: ClientType,
+    environment: dict,
+    client_genesis: dict,
+    total_timing_data: "TimingData",
+) -> Generator[Client, None, None]:
+    """Start and stop a fresh EngineX client for one fixture."""
+    group_identifier = make_group_identifier(
+        fixture.pre_hash, client_type.name
+    )
+    resolved_client = _start_client(
+        hive_context=hive_test,
+        client_type=client_type,
+        environment=environment,
+        client_genesis=client_genesis,
+        group_identifier=group_identifier,
+        total_timing_data=total_timing_data,
+    )
+
+    try:
+        yield resolved_client
+    finally:
+        logger.info(
+            f"🛑 Stopping isolated client for group {group_identifier}"
+        )
+        stop_started = time.perf_counter()
+        try:
+            resolved_client.stop()
+        except Exception:
+            logger.exception(
+                "Failed to stop isolated client for group %s after %.1fms",
+                group_identifier,
+                (time.perf_counter() - stop_started) * 1000,
+            )
+            raise
+        logger.info(
+            f"⏱ phase=client_stop group={group_identifier} "
+            f"ms={(time.perf_counter() - stop_started) * 1000:.1f}"
+        )
+
+
+@pytest.fixture(scope="function")
+def client(
+    request: pytest.FixtureRequest,
+    enginex_client_lifecycle: EngineXClientLifecycle,
+) -> Client:
+    """Resolve the grouped or per-test EngineX client fixture."""
+    fixture_name = (
+        "_grouped_client"
+        if enginex_client_lifecycle == "group"
+        else "_isolated_client"
+    )
+    return cast(Client, request.getfixturevalue(fixture_name))
 
 
 @pytest.fixture(scope="function")
