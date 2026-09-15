@@ -13,12 +13,10 @@ Each `engine_newPayloadVX` is verified against the appropriate VALID/INVALID
 responses.
 """
 
-import time
 from typing import Union
 
 from hive.client import Client
 
-from execution_testing.base_types import Hash
 from execution_testing.fixtures import (
     BlockchainEngineFixture,
     BlockchainEngineXFixture,
@@ -47,94 +45,6 @@ from ..helpers.rejected_blocks import (
 from ..helpers.timing import TimingData
 
 logger = get_logger(__name__)
-
-CANONICAL_HEAD_TIMEOUT_SECONDS = 60.0
-CANONICAL_HEAD_POLL_INTERVAL_SECONDS = 0.05
-
-
-def wait_for_canonical_head(
-    eth_rpc: EthRPC,
-    expected_head_hash: Hash,
-    *,
-    timeout: float = CANONICAL_HEAD_TIMEOUT_SECONDS,
-    poll_interval: float = CANONICAL_HEAD_POLL_INTERVAL_SECONDS,
-) -> None:
-    """
-    Wait until ``eth_getBlockByNumber(latest)`` exposes ``expected_head_hash``.
-
-    Some clients acknowledge ``engine_forkchoiceUpdated`` before their
-    canonical database unwind is complete. EngineX reuses a client for sibling
-    fixtures and rewinds it to genesis between tests, so sending the next
-    payload immediately can execute it against state from the previous branch.
-    Treat the canonical RPC head as the completion barrier before continuing.
-    """
-    if timeout <= 0:
-        raise ValueError("canonical head timeout must be greater than zero")
-    if poll_interval <= 0:
-        raise ValueError(
-            "canonical head poll interval must be greater than zero"
-        )
-
-    expected_hash = str(expected_head_hash).lower()
-    started_at = time.monotonic()
-    attempts = 0
-
-    while True:
-        attempts += 1
-        try:
-            latest_block = eth_rpc.get_block_by_number(
-                "latest", full_txs=False
-            )
-        except Exception as error:
-            raise LoggedError(
-                "Failed to query the canonical head while waiting for "
-                f"EngineX rewind to {expected_hash}: {error}"
-            ) from error
-
-        if not isinstance(latest_block, dict):
-            response_type = type(latest_block).__name__
-            raise LoggedError(
-                "Malformed eth_getBlockByNumber(latest) response while "
-                "waiting for EngineX rewind: expected an object, got "
-                f"{response_type}"
-            )
-
-        observed_hash = latest_block.get("hash")
-        if not isinstance(observed_hash, str):
-            raise LoggedError(
-                "Malformed eth_getBlockByNumber(latest) response while "
-                "waiting for EngineX rewind: missing string field 'hash'"
-            )
-
-        if observed_hash.lower() == expected_hash:
-            if attempts > 1:
-                elapsed = time.monotonic() - started_at
-                logger.info(
-                    "Canonical head reached %s after %d polls (%.3fs)",
-                    expected_hash,
-                    attempts,
-                    elapsed,
-                )
-            return
-
-        elapsed = time.monotonic() - started_at
-        if elapsed >= timeout:
-            raise LoggedError(
-                "Timed out waiting for EngineX canonical rewind: expected "
-                f"head {expected_hash}, observed {observed_hash} after "
-                f"{attempts} polls ({elapsed:.3f}s)"
-            )
-
-        if attempts == 1 or attempts % 20 == 0:
-            logger.info(
-                "Waiting for canonical head %s; currently at %s "
-                "(poll %d, %.3fs elapsed)",
-                expected_hash,
-                observed_hash,
-                attempts,
-                elapsed,
-            )
-        time.sleep(min(poll_interval, timeout - elapsed))
 
 
 def test_blockchain_via_engine(
@@ -194,13 +104,6 @@ def test_blockchain_via_engine(
             raise LoggedError(
                 f"Timed out waiting for forkchoice update to genesis: {e}"
             ) from None
-
-    if isinstance(fixture, BlockchainEngineXFixture):
-        with timing_data.time("Wait for canonical rewind"):
-            wait_for_canonical_head(
-                eth_rpc=eth_rpc,
-                expected_head_hash=genesis_header.block_hash,
-            )
 
     if client.id not in genesis_verified_clients:
         with timing_data.time("Get genesis block"):
