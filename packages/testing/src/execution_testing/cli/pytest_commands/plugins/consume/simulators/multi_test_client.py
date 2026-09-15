@@ -7,7 +7,7 @@ from typing import Generator
 import pytest
 from hive.client import Client
 
-from execution_testing.base_types import to_json
+from execution_testing.base_types import Number, ZeroPaddedHexNumber, to_json
 from execution_testing.fixtures import (
     BlockchainEngineXFixture,
     PreAllocGroup,
@@ -19,6 +19,17 @@ from .helpers.ruleset import ruleset
 from .helpers.test_tracker import PreAllocGroupTestTracker
 
 logger = logging.getLogger(__name__)
+
+
+def chain_id_environment(
+    chain_id: ZeroPaddedHexNumber,
+) -> dict[str, str]:
+    """Return the Hive chain and network IDs for an EngineX prestate."""
+    decimal_chain_id = str(Number(chain_id))
+    return {
+        "HIVE_CHAIN_ID": decimal_chain_id,
+        "HIVE_NETWORK_ID": decimal_chain_id,
+    }
 
 
 class MultiTestClientManager:
@@ -263,8 +274,7 @@ def environment(
     fork = pre_alloc_group.fork
     assert fork in ruleset, f"fork '{fork}' missing in hive ruleset"
     env = {
-        "HIVE_CHAIN_ID": "1",
-        "HIVE_NETWORK_ID": "1",
+        **chain_id_environment(pre_alloc_group.chain_id),
         "HIVE_FORK_DAO_VOTE": "1",
         "HIVE_NODETYPE": "full",
         "HIVE_CHECK_LIVE_PORT": str(check_live_port),

@@ -637,6 +637,20 @@ class BlockchainTest(FormattedTest):  # noqa: D101
             1,
             id="named_group_marker_shares_one_group",
         ),
+        pytest.param(
+            [
+                StateTest(
+                    env="Environment()",
+                    markers="@pytest.mark.pre_alloc_mutable\n",
+                ),
+                StateTest(
+                    env="Environment()",
+                    markers="@pytest.mark.pre_alloc_mutable\n",
+                ),
+            ],
+            2,
+            id="mutable_pre_alloc_isolates_each_test",
+        ),
     ],
 )
 def test_pre_alloc_grouping_by_test_type(

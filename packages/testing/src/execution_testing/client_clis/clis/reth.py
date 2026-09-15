@@ -24,7 +24,10 @@ class RethExceptionMapper(ExceptionMapper):
         TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS: (
             "priority fee is greater than max fee"
         ),
-        TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: "overflow",
+        TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: (
+            "overflow payment in transaction"
+        ),
+        TransactionException.NONCE_IS_MAX: "nonce overflow in transaction",
         TransactionException.TYPE_3_TX_CONTRACT_CREATION: "unexpected length",
         TransactionException.TYPE_3_TX_WITH_FULL_BLOBS: "unexpected list",
         TransactionException.INVALID_CHAINID: "invalid chain ID",
@@ -69,6 +72,12 @@ class RethExceptionMapper(ExceptionMapper):
         ),
         TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST: (
             r"gas floor \(\d+\) exceeds the gas limit \(\d+\)"
+        ),
+        TransactionException.INVALID_SIGNATURE_VRS: (
+            r"Failed to recover the (?:block|signer)|Unexpected type flag"
+        ),
+        TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: (
+            r"Unexpected type flag"
         ),
         TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED: (
             r"blob gas used \d+ exceeds maximum allowance \d+"

@@ -24,6 +24,7 @@ from execution_testing.base_types import (
 from execution_testing.base_types.conversions import (
     BytesConvertible,
     NumberConvertible,
+    to_bytes,
 )
 from execution_testing.forks import Fork, TransitionFork
 from execution_testing.logging import get_logger
@@ -54,6 +55,17 @@ from .contracts import (
 )
 
 logger = get_logger(__name__)
+
+
+def _runtime_bytecode(code: BytesConvertible) -> Bytecode:
+    """Return deployment code with neutral stack metadata when raw."""
+    if isinstance(code, Bytecode):
+        return code
+    return Bytecode(
+        to_bytes(code),
+        popped_stack_items=0,
+        pushed_stack_items=0,
+    )
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -590,10 +602,7 @@ class Alloc(SharedAlloc):
                 Op.SSTORE(key, value) for key, value in storage.root.items()
             )
 
-        assert isinstance(code, Bytecode), (
-            f"incompatible code type: {type(code)}"
-        )
-        code = self.code_pre_processor(code)
+        code = self.code_pre_processor(_runtime_bytecode(code))
 
         max_code_size = fork.max_code_size()
         if len(code) > max_code_size:
@@ -1139,12 +1148,9 @@ class Alloc(SharedAlloc):
                     f"Funding address to minimum balance {d.address} "
                     f"(label={d.address.label}): {fund_eth:.18f} ETH"
                 )
-                self._add_pending_tx(
-                    action="fund_address",
-                    target=d.address.label,
-                    to=d.address,
-                    value=d.amount - current_balance,
-                    gas_limit=self._funding_gas_limit,
+                self._add_address_funding_tx(
+                    address=d.address,
+                    amount=d.amount - current_balance,
                 )
                 new_balance = d.amount
             else:
@@ -1154,12 +1160,9 @@ class Alloc(SharedAlloc):
                     f"(label={d.address.label}): "
                     f"{fund_eth:.18f} ETH"
                 )
-                self._add_pending_tx(
-                    action="fund_address",
-                    target=d.address.label,
-                    to=d.address,
-                    value=d.amount,
-                    gas_limit=self._funding_gas_limit,
+                self._add_address_funding_tx(
+                    address=d.address,
+                    amount=d.amount,
                 )
                 new_balance = current_balance + d.amount
 
@@ -1169,6 +1172,37 @@ class Alloc(SharedAlloc):
                 f"(label={d.address.label}): "
                 f"{Number(d.amount) / 10**18:.18f} ETH"
             )
+
+    def _add_address_funding_tx(
+        self,
+        *,
+        address: Address,
+        amount: int,
+    ) -> PendingTransaction:
+        """Queue a balance transfer without executing the recipient."""
+        initcode = Op.SELFDESTRUCT(address)
+        fork = self._fork.fork_at(
+            block_number=self._block_number,
+            timestamp=self._timestamp,
+        )
+        _, helper_gas_limit = _compute_deploy_gas_limit(
+            fork,
+            deploy_code_size=0,
+            initcode=Bytes(initcode),
+        )
+        gas_limit = max(self._funding_gas_limit, helper_gas_limit)
+        logger.debug(
+            f"Funding address {address} via a transient SELFDESTRUCT helper "
+            f"with gas limit {gas_limit}"
+        )
+        return self._add_pending_tx(
+            action="fund_address",
+            target=address.label,
+            to=None,
+            data=initcode,
+            value=amount,
+            gas_limit=gas_limit,
+        )
 
     def minimum_balance_for_pending_transactions(
         self,
@@ -1189,9 +1223,21 @@ class Alloc(SharedAlloc):
         )
         for tx in self._pending_txs:
             if tx.value is None:
-                # WARN: This currently fails if there's an account with
-                # `pre.fund_eoa()` that never sends a transaction during test.
-                if tx.to not in sender_balances:
+                recipient = tx.to
+                # An unused fund_eoa() fixture has no execution transactions
+                # to pay for. Preserve its setup transaction (and sender nonce)
+                # with zero value instead of rejecting a valid test. Keep the
+                # error for unresolved values on any other setup operation.
+                unused_funded_eoa = (
+                    recipient is not None
+                    and recipient not in sender_balances
+                    and recipient in self._funded_eoa
+                    and tx.metadata is not None
+                    and tx.metadata.action == "fund_eoa"
+                )
+                if recipient is None or (
+                    recipient not in sender_balances and not unused_funded_eoa
+                ):
                     error_message = (
                         "Sender balance must be set before sending:"
                         f"\nTransaction: {tx.model_dump_json(indent=2)}"
@@ -1201,7 +1247,9 @@ class Alloc(SharedAlloc):
                         error_message += f"\nMetadata: {metadata_json}"
                     logger.error(error_message)
                     raise ValueError(error_message)
-                sender_balance = sender_balances[tx.to]
+                sender_balance = (
+                    0 if unused_funded_eoa else sender_balances[recipient]
+                )
                 bal_eth = sender_balance / 10**18
                 logger.info(
                     f"Deferred EOA balance for {tx.to} set to "

@@ -142,6 +142,30 @@ def test_initcode(initcode: Initcode, bytecode: bytes) -> None:  # noqa: D103
     assert bytes(initcode) == bytecode
 
 
+def test_initcode_uses_wide_offset_for_large_prefix() -> None:
+    """Use the narrowest PUSH that can address code after a large prefix."""
+    prefix = Op.JUMPDEST * 256
+    initcode = Initcode(deploy_code=Op.STOP, initcode_prefix=prefix)
+
+    assert bytes(initcode) == bytes(prefix) + bytes(
+        [
+            0x61,  # PUSH2 deploy-code length
+            0x00,
+            0x01,
+            0x60,  # PUSH1 destination offset
+            0x00,
+            0x81,  # DUP2
+            0x61,  # PUSH2 code offset
+            0x01,
+            0x0C,
+            0x82,  # DUP3
+            0x39,  # CODECOPY
+            0xF3,  # RETURN
+            0x00,  # deployed STOP
+        ]
+    )
+
+
 @pytest.mark.parametrize(
     "initcode,reference",
     [

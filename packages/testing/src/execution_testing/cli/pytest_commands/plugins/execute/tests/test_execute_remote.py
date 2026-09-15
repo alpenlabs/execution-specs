@@ -597,6 +597,32 @@ def test_deploy_contract(execute_runner: ExecuteRunner) -> None:
     execute_runner.run_assert(test_method=test_method)
 
 
+def test_deploy_raw_bytecode(execute_runner: ExecuteRunner) -> None:
+    """Execute a test that deploys raw bytes through the Alloc API."""
+    test_method = """\
+        def test_deploy(state_test, pre) -> None:
+            code = bytes(Op.SSTORE(0, 1) + Op.STOP)
+            contract = pre.deploy_contract(code)
+            sender = pre.fund_eoa()
+            tx = Transaction(
+                sender=sender,
+                to=contract,
+                gas_limit=100_000,
+            )
+            state_test(
+                pre=pre,
+                post={{
+                    contract: Account(
+                        storage=Storage({{0: 1}}),
+                    ),
+                }},
+                tx=tx,
+            )
+    """.format()
+
+    execute_runner.run_assert(test_method=test_method)
+
+
 @pytest.mark.parametrize(
     "already_deployed",
     [

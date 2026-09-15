@@ -12,6 +12,16 @@ from execution_testing.test_types import EOA, Transaction, ceiling_division
 from execution_testing.vm import Bytecode, ForkOpcodeInterface, Op
 
 
+def _push_size(value: int, *, minimum: int = 1) -> int:
+    """Return the EVM PUSH width required to encode a non-negative value."""
+    if value < 0:
+        raise ValueError(f"cannot encode a negative PUSH value: {value}")
+    size = max(minimum, (value.bit_length() + 7) // 8)
+    if size > 32:
+        raise ValueError(f"PUSH value requires {size} bytes, maximum is 32")
+    return size
+
+
 class Initcode(Bytecode):
     """
     Helper class used to generate initcode for the specified deployment code.
@@ -56,7 +66,7 @@ class Initcode(Bytecode):
 
         # PUSHN: length=<bytecode length>. PUSH2 by default, widening to a
         # larger PUSH only when the deploy code exceeds 64KiB - 1 bytes.
-        push_length_size = max(2, (code_length.bit_length() + 7) // 8)
+        push_length_size = _push_size(code_length, minimum=2)
         push_length = getattr(Op, f"PUSH{push_length_size}")
         initcode += push_length(code_length)
 
@@ -66,12 +76,22 @@ class Initcode(Bytecode):
         # DUP2
         initcode += Op.DUP2
 
-        # PUSH1: initcode_length=9 + push_length_size + initcode_prefix_bytes
-        no_prefix_length = 0x09 + push_length_size
-        assert no_prefix_length + len(initcode_prefix) <= 0xFF, (
-            "initcode prefix too long"
-        )
-        initcode += Op.PUSH1(no_prefix_length + len(initcode_prefix))
+        # PUSHN: offset of the deployment code. The selected PUSH width is
+        # itself part of the offset, so widen until the value is stable.
+        push_offset_size = 1
+        while True:
+            code_offset = (
+                len(initcode_prefix)
+                + 0x08
+                + push_length_size
+                + push_offset_size
+            )
+            required_size = _push_size(code_offset)
+            if required_size == push_offset_size:
+                break
+            push_offset_size = required_size
+        push_offset = getattr(Op, f"PUSH{push_offset_size}")
+        initcode += push_offset(code_offset)
 
         # DUP3
         initcode += Op.DUP3
