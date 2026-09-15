@@ -11,7 +11,11 @@ from execution_testing.rpc.rpc_types import (
     BlockTransactionExceptionWithMessage,
 )
 
-from ..simulators.helpers.exceptions import LoggedError
+from ..simulators.helpers.exceptions import (
+    EXCEPTION_MAPPERS,
+    LoggedError,
+    RethExceptionMapper,
+)
 from ..simulators.helpers.rejected_blocks import (
     BlockRejectionTracker,
     matches_expected_exception,
@@ -31,6 +35,11 @@ CACHED_REJECTION_ERROR = UndefinedException(
     "links to previously rejected block",
     mapper_name="RethExceptionMapper",
 )
+
+
+def test_alpen_uses_reth_exception_mapper() -> None:
+    """Alpen's Reth-derived validation strings use the Reth mapper."""
+    assert isinstance(EXCEPTION_MAPPERS["alpen"], RethExceptionMapper)
 
 
 def test_first_rejection_returns_the_error_itself() -> None:
