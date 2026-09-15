@@ -69,6 +69,29 @@ def test_reth_maps_raw_transaction_decode_failures(
     assert set(mapped) == expected
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        (
+            "nonce overflow in transaction",
+            TransactionException.NONCE_IS_MAX,
+        ),
+        (
+            "overflow payment in transaction",
+            TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW,
+        ),
+    ],
+)
+def test_reth_maps_distinct_transaction_overflows(
+    message: str,
+    expected: TransactionException,
+) -> None:
+    """Do not collapse nonce and gas-payment overflows into one class."""
+    mapped = RethExceptionMapper().message_to_exception(message)
+    assert not isinstance(mapped, UndefinedException)
+    assert mapped == [expected]
+
+
 def test_first_rejection_returns_the_error_itself() -> None:
     """The first rejection of a block records and returns its own error."""
     tracker = BlockRejectionTracker()
