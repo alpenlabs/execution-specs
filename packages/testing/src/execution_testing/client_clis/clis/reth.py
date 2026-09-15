@@ -24,7 +24,10 @@ class RethExceptionMapper(ExceptionMapper):
         TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS: (
             "priority fee is greater than max fee"
         ),
-        TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: "overflow",
+        TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW: (
+            "overflow payment in transaction"
+        ),
+        TransactionException.NONCE_IS_MAX: "nonce overflow in transaction",
         TransactionException.TYPE_3_TX_CONTRACT_CREATION: "unexpected length",
         TransactionException.TYPE_3_TX_WITH_FULL_BLOBS: "unexpected list",
         TransactionException.INVALID_CHAINID: "invalid chain ID",
