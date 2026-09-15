@@ -111,6 +111,8 @@ EXCEPTION_MAPPERS: Dict[str, ExceptionMapper] = {
     "erigon": ErigonExceptionMapper(),
     "besu": BesuExceptionMapper(),
     "reth": RethExceptionMapper(),
+    # Alpen EE is built on Reth and preserves its Engine validation strings.
+    "alpen": RethExceptionMapper(),
     "nimbus": NimbusExceptionMapper(),
     "ethereumjs": EthereumJSExceptionMapper(),
     "ethrex": EthrexExceptionMapper(),
