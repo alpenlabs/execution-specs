@@ -12,7 +12,7 @@ Implementation of the `MODEXP` precompiled contract.
 """
 
 from ethereum_types.bytes import Bytes
-from ethereum_types.numeric import U256, Uint
+from ethereum_types.numeric import U256, Uint, ulen
 
 from ...vm import Evm
 from ...vm.gas import charge_gas
@@ -33,10 +33,13 @@ def modexp(evm: Evm) -> None:
     exp_length = U256.from_be_bytes(buffer_read(data, U256(32), U256(32)))
     modulus_length = U256.from_be_bytes(buffer_read(data, U256(64), U256(32)))
 
-    exp_start = U256(96) + base_length
-
-    exp_head = U256.from_be_bytes(
-        buffer_read(data, exp_start, min(U256(32), exp_length))
+    exp_start = Uint(96) + Uint(base_length)
+    exp_head = (
+        U256(0)
+        if exp_start >= ulen(data)
+        else U256.from_be_bytes(
+            buffer_read(data, U256(exp_start), min(U256(32), exp_length))
+        )
     )
 
     charge_gas(
@@ -50,9 +53,10 @@ def modexp(evm: Evm) -> None:
         return
 
     base = Uint.from_be_bytes(buffer_read(data, U256(96), base_length))
-    exp = Uint.from_be_bytes(buffer_read(data, exp_start, exp_length))
+    exp_start_u256 = U256(exp_start)
+    exp = Uint.from_be_bytes(buffer_read(data, exp_start_u256, exp_length))
 
-    modulus_start = exp_start + exp_length
+    modulus_start = exp_start_u256 + exp_length
     modulus = Uint.from_be_bytes(
         buffer_read(data, modulus_start, modulus_length)
     )
