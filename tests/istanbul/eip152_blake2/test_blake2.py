@@ -463,6 +463,12 @@ def test_blake2b_invalid_input(
         pytest.param(-1, id="insufficient_gas"),
     ],
 )
+@pytest.mark.filter_combinations(
+    lambda data, precompile_gas_modifier, **_: (
+        precompile_gas_modifier == 0 or data.rounds > 0
+    ),
+    reason="zero-round BLAKE2F has no insufficient-gas case",
+)
 @pytest.mark.eels_base_coverage
 def test_blake2b_gas(
     state_test: StateTestFiller,
@@ -476,9 +482,6 @@ def test_blake2b_gas(
 ) -> None:
     """Test BLAKE2b precompile with different gas limits."""
     sufficient_gas = precompile_gas_modifier == 0
-    if not sufficient_gas and precompile_gas == 0:
-        pytest.skip("Precompile cost is zero, cannot run oog")
-
     account = pre.deploy_contract(
         blake2b_contract_bytecode, storage={0: 0xDEADBEEF}
     )
@@ -520,7 +523,6 @@ def test_blake2b_gas(
                 data_2="0xb7dcc230d22a4047f0486cfcfb50a17b24b2899eb8fca370f22240adb5170189",
             ),
             id="EIP-152-case8-data9-large-gas-limit",
-            marks=pytest.mark.skip("Times-out during fill"),
         ),
     ],
 )
