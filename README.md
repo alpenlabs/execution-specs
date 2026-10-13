@@ -1,5 +1,69 @@
 # Ethereum Execution Layer Specifications
 
+## Alpen-maintained fork
+
+This is Alpen Labs' fork of [ethereum/execution-specs][alpen-upstream],
+used by [e2e-runner][alpen-runner]. It contains Alpen-maintained patches;
+it is not an unchanged mirror. The upstream project documentation follows
+this section.
+
+### Which branch should I use?
+
+- **Default / landing-page branch:** [`forks/amsterdam`][alpen-default].
+  This is the upstream-based branch, not the patched EEST test source.
+- **Maintained Prague test branch:**
+  [`fix/alpen-prague-enginex-ci-20260916`][alpen-patches].
+  This contains the patches used by the reviewed runner configuration.
+- **Reviewed runner pin:**
+  [`96e242bf7204ccf86fbb179387342834647a18d6`][alpen-pin].
+  The runner uses this immutable commit, not the moving branch tip.
+  README-only updates do not advance that pin.
+
+The inherited `forks/amsterdam` name does not select the fork under test:
+the reviewed runner lane selects **Prague**, including its transition fixtures.
+
+### What we maintain here
+
+At the reviewed pin, there are **16 patch commits** beyond upstream base
+`6ba36d4907a746a5f08dc3a4577cb32221944fb1`. See the
+[complete, pinned patch diff][alpen-diff]. These changes cover:
+
+- EngineX client isolation and fixture chain-ID preservation.
+- Isolation of mutable pre-allocations during fixture generation.
+- Reth/Alpen error mapping for rejected transactions and blocks.
+- Remote-execution funding, nonce handling and prestate setup, plus explicit
+  capability markers for setups that remote execution cannot represent.
+- A reference-spec MODEXP pointer-overflow fix and restored test coverage.
+- Removal of non-semantic timeout/slow-test skips, and filtering an impossible
+  zero-round BLAKE2F out-of-gas parameter combination before execution.
+
+These are not all runner wrappers: the MODEXP patch changes the Python
+reference implementation used to generate expected results. It needs explicit
+review when updating the pin; do not describe this fork as unmodified upstream
+conformance testing.
+
+### Ownership and coverage boundary
+
+This fork holds changes to the test framework, reference implementation and
+test definitions. The dedicated `alpen-eest-client`, orchestration, CI,
+Alpen exclusion policy and reporting live in **e2e-runner**, not here.
+Canonical EngineX results do not establish live OL/DA/bridge integration or
+SP1 proof coverage; those require separate production-stack validation.
+
+Maintenance direction: upstream generally useful fixes, keep Alpen-specific
+orchestration in e2e-runner, and retire patches once equivalent upstream
+behavior is verified. A branch update alone is not approval to change the
+runner pin: review the diff and rerun the relevant coverage gates first.
+
+[alpen-upstream]: https://github.com/ethereum/execution-specs
+[alpen-runner]: https://github.com/alpenlabs/e2e-runner
+[alpen-default]: https://github.com/alpenlabs/execution-specs/tree/forks/amsterdam
+[alpen-patches]: https://github.com/alpenlabs/execution-specs/tree/fix/alpen-prague-enginex-ci-20260916
+[alpen-pin]: https://github.com/alpenlabs/execution-specs/commit/96e242bf7204ccf86fbb179387342834647a18d6
+[alpen-diff]: https://github.com/alpenlabs/execution-specs/compare/6ba36d4907a746a5f08dc3a4577cb32221944fb1...96e242bf7204ccf86fbb179387342834647a18d6
+
+## Upstream project
+
 [![PyPI release](https://img.shields.io/pypi/v/ethereum-execution)](https://pypi.org/project/ethereum-execution/)
 [![Tests release](https://img.shields.io/github/v/release/ethereum/execution-specs?filter=tests%40v%2A&label=tests)](https://github.com/ethereum/execution-specs/releases)
 [![License](https://img.shields.io/github/license/ethereum/execution-specs)](LICENSE.md)
@@ -49,7 +113,7 @@ Earnest contributions are welcome; drive-by contributions are not. See [CONTRIBU
 - [Writing Specs](docs/specs/writing_specs.md): Style rules and `ethereum_spec_tools` utilities for changes under `src/ethereum/`.
 - [Writing Tests](docs/writing_tests/index.md): For guidance on adding consensus tests under `./tests/`.
 
-This repository is maintained by the [STEEL Team](https://steel.ethereum.foundation/) at the Ethereum Foundation.
+The upstream project is maintained by the [STEEL Team](https://steel.ethereum.foundation/) at the Ethereum Foundation.
 
 ## Community and Support
 
